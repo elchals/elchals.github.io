@@ -148,14 +148,14 @@ A very typical program in CTFs. First, stdin and stdout are set as unbuffered, s
 ## Leaking Libc
 I need to know which version of GLIBC is being used, as well as its base address. For that, I need at least the leak of two known addresses from libc. I'm going to try to read them from the GOT section.  
 I know this part is the call to printf:  
-```asm
+```
 73d:       48 8d 85 10 fc ff ff    lea    rax, [rbp-0x3f0]
 744:       48 89 c7                mov    rdi, rax
 747:       b8 00 00 00 00          mov    eax, 0x0
 74c:       e8 0f fe ff ff          call   0x560
 ```
 Therefore, at offset 0x560 will be the printf PLT. 
-```asm
+```
 560:       ff 25 6a 0a 20 00       jmp    QWORD PTR [rip+0x200a6a]        # 0x200fd0
 566:       68 01 00 00 00          push   0x1
 56b:       e9 d0 ff ff ff          jmp    0x540    
