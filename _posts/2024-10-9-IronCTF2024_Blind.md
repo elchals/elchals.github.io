@@ -1,8 +1,9 @@
 ---
 title: IronCTF 2024 - Blind
 date: 2024-10-9
-categories: [CTF, writeup]
-tags: [ctf, writeup, ironctf]     # TAG names should always be lowercase
+categories: [pwn, writeup]
+tags: [ctf, writeup, ironctf, pwn]     # TAG names should always be lowercase
+description: This is my Write-up for IronCTF 2024 - Blind
 ---
 
 <center><h1>IronCTF 2024 - Blind</h1></center>
