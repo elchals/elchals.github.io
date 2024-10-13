@@ -9,7 +9,7 @@ tags: [ctf, writeup, TCP1P]     # TAG names should always be lowercase
 
 This weekend I have been participating solo in the TCP1P CTF 2024. I really enjoyed this CTF. I ended up solving some pretty good challenges and finished in 23rd place. As always, I focused on PWN, and here are my Write-Ups for the best challenges I solved.  
 
-![Puntuacion]({{ site.baseurl }}/2024-10-13_Imges/Puntuacion.png)
+![Puntuacion]({{ site.baseurl }}/_posts/2024-10-13_Imges/Puntuacion.png)
 
 ## Amnesia
 <img src="https://raw.githubusercontent.com/elchals/elchals.github.io/main/_posts/2024-10-13_Imges/amnesia.png" alt="Amnesia">
