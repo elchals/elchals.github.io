@@ -8,10 +8,10 @@ tags: [ctf, writeup, ironctf]     # TAG names should always be lowercase
 <center><h1>TCP1P 2024 - My PWN Write-Ups</h1></center>
 
 This weekend I have been participating solo in the TCP1P CTF 2024. I really enjoyed this CTF. I ended up solving some pretty good challenges and finished in 23rd place. As always, I focused on PWN, and here are my Write-Ups for the best challenges I solved.  
-![Amnesia Banner]([ranking](/assets/images/Puntuacion.png))
+![Amnesia Banner]([ranking](/images/Puntuacion.png))
 
 ## Amnesia
-![Amnesia Banner]([amnesia](/assets/images/amnesia.png))
+![Amnesia Banner]([amnesia](/images/amnesia.png))
 
 - **Category:** Pwn.  
 - **Points:** 221
