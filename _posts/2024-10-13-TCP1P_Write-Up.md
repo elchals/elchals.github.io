@@ -1,8 +1,8 @@
 ---
-title: IronCTF 2024 - Blind
-date: 2024-10-9
+title: TCP1P 2024 - Blind
+date: 2024-10-12
 categories: [CTF, writeup]
-tags: [ctf, writeup, ironctf]     # TAG names should always be lowercase
+tags: [ctf, writeup, TCP1P]     # TAG names should always be lowercase
 ---
 
 <center><h1>TCP1P 2024 - My PWN Write-Ups</h1></center>
