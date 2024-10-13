@@ -11,7 +11,7 @@ This weekend I have been participating solo in the TCP1P CTF 2024. I really enjo
 <img src="https://raw.githubusercontent.com/elchals/elchals.github.io/main/_posts/2024-10-13_Imges/Puntuacion.png" alt="Puntuacion">
 
 ## Amnesia
-<img src="https://raw.githubusercontent.com/elchals/elchals.github.io/blob/main/_posts/2024-10-13_Imges/amnesia.png" alt="Amnesia">
+<img src="https://raw.githubusercontent.com/elchals/elchals.github.io/main/_posts/2024-10-13_Imges/amnesia.png" alt="Amnesia">
 
 - **Category:** Pwn.  
 - **Points:** 221
