@@ -1,5 +1,5 @@
 ---
-title: TCP1P 2024 - Blind
+title: TCP1P 2024 - My PWN Write_ups
 date: 2024-10-12
 categories: [CTF, writeup]
 tags: [ctf, writeup, TCP1P]     # TAG names should always be lowercase
